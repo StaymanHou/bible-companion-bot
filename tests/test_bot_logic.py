@@ -40,9 +40,10 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         state = await self.bot.start(self.mock_update, self.mock_context)
         self.assertEqual(state, DRIVE_SETUP)
         self.mock_update.message.reply_text.assert_called_once()
-        # Verify message mentions manual file creation
+        # Verify message mentions manual file creation with .yaml extension
         args = self.mock_update.message.reply_text.call_args[0][0]
-        self.assertIn("create 3 empty files", args)
+        self.assertIn("profile.yaml", args)
+        self.assertIn("reading_plan.yaml", args)
 
     async def test_drive_setup_success_new_user_write_ok(self):
         """Test valid folder, no profile, write access OK -> ONBOARDING."""
@@ -51,7 +52,7 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         # Mock no existing profile
         self.mock_drive.get_file_id_by_name.return_value = None
         # Mock successful write test
-        self.mock_drive.write_md_file.return_value = "test_file_id"
+        self.mock_drive.write_yaml_file.return_value = "test_file_id"
         
         state = await self.bot.drive_setup_handler(self.mock_update, self.mock_context)
         
@@ -66,14 +67,16 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         self.mock_drive.get_file_id_by_name.return_value = None
 
         # Mock write failure with Quota message
-        self.mock_drive.write_md_file.side_effect = Exception("Service Accounts do not have storage quota")
+        self.mock_drive.write_yaml_file.side_effect = Exception("Service Accounts do not have storage quota")
 
         state = await self.bot.drive_setup_handler(self.mock_update, self.mock_context)
 
         self.assertEqual(state, DRIVE_SETUP)
-        # Verify instructions
+        # Verify instructions mention .yaml
         args = self.mock_update.message.reply_text.call_args[0][0]
         self.assertIn("manually create these **empty files**", args)
+        # In the actual code (bot.py), the message lists "1. `profile.yaml`"
+        self.assertIn("`profile.yaml`", args)
 
     async def test_drive_setup_existing_profile_full(self):
         """Test valid folder, profile exists and has data -> IDLE (Welcome Back)."""
@@ -82,7 +85,7 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         # Mock existing profile
         self.mock_drive.get_file_id_by_name.return_value = "existing_profile_id"
         # Mock reading profile with data
-        self.mock_drive.read_md_file.return_value = ({'language': 'en'}, "body")
+        self.mock_drive.read_yaml_file.return_value = {'language': 'en'}
         
         state = await self.bot.drive_setup_handler(self.mock_update, self.mock_context)
         
@@ -95,12 +98,12 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         self.mock_drive.list_files_in_folder.return_value = [{'id': '1', 'name': 'test'}]
         self.mock_drive.get_file_id_by_name.return_value = "existing_profile_id"
         # Mock reading empty profile
-        self.mock_drive.read_md_file.return_value = ({}, "")
+        self.mock_drive.read_yaml_file.return_value = {}
 
         state = await self.bot.drive_setup_handler(self.mock_update, self.mock_context)
 
         self.assertEqual(state, ONBOARDING_LANGUAGE)
-        self.assertIn("empty profile.md", self.mock_update.message.reply_text.call_args[0][0])
+        self.assertIn("empty profile.yaml", self.mock_update.message.reply_text.call_args[0][0])
 
     async def test_onboarding_flow(self):
         """Test the sequence of onboarding questions."""
@@ -119,18 +122,19 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         
         self.assertEqual(state, IDLE)
         # Check if profile was saved
-        self.mock_drive.write_md_file.assert_any_call("fid", 'profile.md', ANY, "# User Profile\n\nManaged by BibleBot.")
-        # Check if plan was saved
-        self.mock_drive.write_md_file.assert_any_call("fid", 'reading_plan.md', ANY, "Day 1: Genesis 1")
+        self.mock_drive.write_yaml_file.assert_any_call("fid", 'profile.yaml', ANY)
+        # Check if plan was saved with correct structure
+        self.mock_drive.write_yaml_file.assert_any_call("fid", 'reading_plan.yaml', {'generated_at': 'now', 'plan': "Day 1: Genesis 1"})
 
     async def test_read_command_success(self):
         """Test /read command fetches text and transitions to READING."""
         self.mock_context.user_data['drive_folder_id'] = "fid"
         
         self.mock_drive.get_file_id_by_name.side_effect = ["p_id", "plan_id"]
-        self.mock_drive.read_md_file.side_effect = [
-            ({'current_day': 1, 'translation': 'ESV'}, "body"), # Profile
-            ({}, "Day 1: Gen 1") # Plan
+        # Mock reading files with YAML structure
+        self.mock_drive.read_yaml_file.side_effect = [
+            {'current_day': 1, 'translation': 'ESV'}, # Profile
+            {'plan': "Day 1: Gen 1"} # Plan
         ]
         
         self.mock_ai.generate_response.return_value = "Genesis 1"
@@ -144,12 +148,12 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         """Test /done updates progress and transitions to DISCUSSION."""
         self.mock_context.user_data['drive_folder_id'] = "fid"
         self.mock_drive.get_file_id_by_name.return_value = "p_id"
-        self.mock_drive.read_md_file.return_value = ({'current_day': 1}, "body")
+        self.mock_drive.read_yaml_file.return_value = {'current_day': 1}
         
         state = await self.bot.done_command(self.mock_update, self.mock_context)
         
         self.assertEqual(state, DISCUSSION)
-        self.mock_drive.write_md_file.assert_called()
+        self.mock_drive.write_yaml_file.assert_called()
 
     async def test_discussion_flow(self):
         """Test discussion handler uses AI and saves history."""
@@ -165,8 +169,8 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         state = await self.bot.discussion_handler(self.mock_update, self.mock_context)
         
         self.assertEqual(state, DISCUSSION)
-        self.mock_drive.write_md_file.assert_called_with(
-            "fid", 'chat_history.md', ANY, ANY
+        self.mock_drive.write_yaml_file.assert_called_with(
+            "fid", 'chat_history.yaml', ANY, file_id=None
         )
 
 if __name__ == '__main__':
