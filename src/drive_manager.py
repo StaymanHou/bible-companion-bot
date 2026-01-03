@@ -97,12 +97,17 @@ class GoogleDriveManager:
                                   resumable=True)
         
         try:
+            # Upsert Logic: If file_id is missing, try to find it by name
+            if not file_id:
+                file_id = self.get_file_id_by_name(folder_id, filename)
+
             if file_id:
                 # Update existing file
                 file = self.service.files().update(
                     fileId=file_id,
                     media_body=media,
                     supportsAllDrives=True).execute()
+                return file.get('id') or file_id
             else:
                 # Create new file
                 file_metadata['parents'] = [folder_id]
@@ -111,10 +116,20 @@ class GoogleDriveManager:
                     media_body=media,
                     fields='id',
                     supportsAllDrives=True).execute()
-            return file.get('id')
+                return file.get('id')
         except Exception as e:
             logger.error(f"Error writing file {filename}: {e}")
-            return None
+            raise e # Re-raise to let caller handle quota errors
+
+    def delete_file(self, file_id):
+        """Deletes a file from Google Drive."""
+        if not self.service: return False
+        try:
+            self.service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting file {file_id}: {e}")
+            return False
 
     def get_file_id_by_name(self, folder_id, filename):
         """Finds a file ID by name within a folder."""
