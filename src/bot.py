@@ -270,13 +270,23 @@ class BibleBot:
         reading_context = context.user_data.get('current_scripture', 'The Bible')
         profile = context.user_data.get('profile', {})
         loop = asyncio.get_running_loop()
+        folder_id = context.user_data.get('drive_folder_id')
+
+        # Retrieve persistent chat history
+        # 1. Try memory
+        history = context.user_data.get('chat_history')
         
-        # Retrieve persistent chat history (optional: load from Drive if we want multi-session context)
-        # For now, we use session-based history + last 5-10 turns
-        history = context.user_data.get('chat_history', [])
+        # 2. If missing, try Drive
+        chat_file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'chat_history.md')
         
-        # Generate Response using existing history (don't append current user input yet to avoid User-User sequence in Gemini)
-        # Pass a copy of history to avoid mutation issues in threaded execution or tests
+        if history is None:
+            if chat_file_id:
+                meta, _ = await loop.run_in_executor(None, self.drive.read_md_file, chat_file_id)
+                history = meta.get('history', [])
+            else:
+                history = []
+
+        # Generate Response using existing history
         response = await loop.run_in_executor(
             None, 
             lambda: self.ai.discuss_reading(user_input, list(history), reading_context, profile=profile)
@@ -293,24 +303,22 @@ class BibleBot:
         context.user_data['chat_history'] = history
         
         # Persist Chat Log to Drive
-        folder_id = context.user_data.get('drive_folder_id')
-        chat_file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'chat_history.md')
-        
-        # We append to the body of the chat log
-        # Note: Reading/Writing the whole chat log every time is inefficient for long logs, 
-        # but fits the requirement for .md storage.
+        # We save the structured history in Frontmatter for state recovery
+        # And the readable text in the body for the user
         if chat_file_id:
             meta, content = await loop.run_in_executor(None, self.drive.read_md_file, chat_file_id)
+            meta['history'] = history
             new_content = content + f"\n\n**User:** {user_input}\n**Bot:** {response}"
             await loop.run_in_executor(
                 None, 
                 lambda: self.drive.write_md_file(folder_id, 'chat_history.md', meta, new_content, file_id=chat_file_id)
             )
         else:
+            meta = {'created': 'now', 'history': history}
             new_content = f"**User:** {user_input}\n**Bot:** {response}"
             await loop.run_in_executor(
                 None, 
-                lambda: self.drive.write_md_file(folder_id, 'chat_history.md', {'created': 'now'}, new_content)
+                lambda: self.drive.write_md_file(folder_id, 'chat_history.md', meta, new_content)
             )
 
         await update.message.reply_text(response)
@@ -321,7 +329,20 @@ class BibleBot:
         return ConversationHandler.END
 
     def run(self):
-        self.application.run_polling()
+        webhook_url = os.environ.get('WEBHOOK_URL')
+        port = int(os.environ.get('PORT', '8080'))
+
+        if webhook_url:
+            logger.info(f"Starting in Webhook mode. Listening on port {port}...")
+            self.application.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                webhook_url=webhook_url,
+                allowed_updates=Update.ALL_TYPES
+            )
+        else:
+            logger.info("Starting in Polling mode...")
+            self.application.run_polling()
 
 if __name__ == '__main__':
     # Initialize Dependencies
