@@ -54,9 +54,9 @@ class GoogleDriveManager:
             logger.error(f"Error listing files: {e}")
             return []
 
-    def read_md_file(self, file_id):
-        """Reads a Markdown file and parses YAML frontmatter."""
-        if not self.service: return None, None
+    def read_yaml_file(self, file_id):
+        """Reads a YAML file and parses it."""
+        if not self.service: return None
         try:
             request = self.service.files().get_media(fileId=file_id, supportsAllDrives=True)
             fh = io.BytesIO()
@@ -66,34 +66,25 @@ class GoogleDriveManager:
                 status, done = downloader.next_chunk()
             
             content = fh.getvalue().decode('utf-8')
-            
-            # Parse Frontmatter
-            if content.startswith('---'):
-                parts = content.split('---', 2)
-                if len(parts) >= 3:
-                    frontmatter = yaml.safe_load(parts[1])
-                    body = parts[2]
-                    return frontmatter, body.strip()
-            
-            return {}, content
+            return yaml.safe_load(content)
 
         except Exception as e:
             logger.error(f"Error reading file {file_id}: {e}")
-            return None, None
+            return None
 
-    def write_md_file(self, folder_id, filename, frontmatter, body, file_id=None):
-        """Creates or updates a Markdown file with YAML frontmatter."""
+    def write_yaml_file(self, folder_id, filename, data, file_id=None):
+        """Creates or updates a YAML file."""
         if not self.service: return None
         
-        content = "---\n" + yaml.dump(frontmatter) + "---\n\n" + body
+        content = yaml.dump(data, default_flow_style=False)
         
         file_metadata = {
             'name': filename,
-            'mimeType': 'text/markdown'
+            'mimeType': 'application/x-yaml'
         }
         
         media = MediaIoBaseUpload(io.BytesIO(content.encode('utf-8')),
-                                  mimetype='text/markdown',
+                                  mimetype='application/x-yaml',
                                   resumable=True)
         
         try:

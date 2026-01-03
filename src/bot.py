@@ -73,9 +73,9 @@ class BibleBot:
             "To get started, I need access to a Google Drive folder to store your progress and preferences.\n"
             "**Important:** I need Edit access to this folder.\n"
             "If you are using a **Personal Google Account**, you must create 3 empty files in the folder for me to use (due to Google permission rules):\n"
-            "- `profile.md`\n"
-            "- `reading_plan.md`\n"
-            "- `chat_history.md`\n\n"
+            "- `profile.yaml`\n"
+            "- `reading_plan.yaml`\n"
+            "- `chat_history.yaml`\n\n"
             "If you are using a **Shared Drive (Workspace)**, you don't need to create these files.\n\n"
             "1. Share the folder with my email:\n"
             f"`{email}`\n"
@@ -105,29 +105,28 @@ class BibleBot:
         
         # Check for existing profile
         profile_id = await loop.run_in_executor(
-            None, self.drive.get_file_id_by_name, folder_id, 'profile.md'
+            None, self.drive.get_file_id_by_name, folder_id, 'profile.yaml'
         )
         
         # Logic to determine if we are onboarding or returning
         if profile_id:
             # Read the profile to check if it's populated or just an empty placeholder
-            read_result = await loop.run_in_executor(None, self.drive.read_md_file, profile_id)
-            profile_data, body = read_result if read_result else ({}, "")
+            profile_data = await loop.run_in_executor(None, self.drive.read_yaml_file, profile_id)
 
             # If it has data, welcome back
-            if profile_data or (body and body.strip()):
+            if profile_data:
                 await update.message.reply_text("I found an existing profile in this folder! Welcome back.\n\nType /read to continue your journey.")
                 return IDLE
 
             # If empty, treat as Onboarding (the user created the placeholder)
-            await update.message.reply_text("Access confirmed! I see your empty profile.md.\nLet's set up your profile.\n\nFirst, what is your preferred language?")
+            await update.message.reply_text("Access confirmed! I see your empty profile.yaml.\nLet's set up your profile.\n\nFirst, what is your preferred language?")
             return ONBOARDING_LANGUAGE
         else:
             # Profile doesn't exist. Try to create a test file to check for "Quota" issue.
             try:
                 test_file_id = await loop.run_in_executor(
                     None,
-                    lambda: self.drive.write_md_file(folder_id, 'bot_test_permission.txt', {}, "test")
+                    lambda: self.drive.write_yaml_file(folder_id, 'bot_test_permission.yaml', {"test": "data"})
                 )
                 # If success, we have write access (Shared Drive or other). Clean up.
                 if test_file_id:
@@ -144,9 +143,9 @@ class BibleBot:
                         "**Action Required:**\n"
                         "I cannot create new files in this folder because of Google's Service Account restrictions on Personal Drives.\n\n"
                         "Please manually create these **empty files** inside your folder:\n"
-                        "1. `profile.md`\n"
-                        "2. `reading_plan.md`\n"
-                        "3. `chat_history.md`\n\n"
+                        "1. `profile.yaml`\n"
+                        "2. `reading_plan.yaml`\n"
+                        "3. `chat_history.yaml`\n\n"
                         "After you have created them, paste the **Folder ID** again."
                     )
                     return DRIVE_SETUP
@@ -200,7 +199,7 @@ class BibleBot:
         # Offload blocking calls
         await loop.run_in_executor(
             None, 
-            lambda: self.drive.write_md_file(folder_id, 'profile.md', profile_data, "# User Profile\n\nManaged by BibleBot.")
+            lambda: self.drive.write_yaml_file(folder_id, 'profile.yaml', profile_data)
         )
         
         # Generate initial plan using AI
@@ -211,9 +210,14 @@ class BibleBot:
             None, self.ai.generate_reading_plan, str(profile_data)
         )
         
+        plan_data = {
+            'generated_at': 'now',
+            'plan': plan_text
+        }
+
         await loop.run_in_executor(
             None, 
-            lambda: self.drive.write_md_file(folder_id, 'reading_plan.md', {'generated_at': 'now'}, plan_text)
+            lambda: self.drive.write_yaml_file(folder_id, 'reading_plan.yaml', plan_data)
         )
         
         await update.message.reply_text(f"Setup Complete! Here is your plan:\n\n{plan_text}\n\nType /read to begin.")
@@ -228,29 +232,30 @@ class BibleBot:
         loop = asyncio.get_running_loop()
 
         # Get Profile
-        file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'profile.md')
+        file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'profile.yaml')
         if not file_id:
             await update.message.reply_text("Profile not found. Please run /start.")
             return ConversationHandler.END
             
-        read_result = await loop.run_in_executor(None, self.drive.read_md_file, file_id)
-        if not read_result or read_result[0] is None:
+        profile = await loop.run_in_executor(None, self.drive.read_yaml_file, file_id)
+        if not profile:
             await update.message.reply_text("Error reading profile. Please try again.")
             return ConversationHandler.END
             
-        profile, _ = read_result
         current_day = profile.get('current_day', 1)
         
         # Store profile in user_data for discussion context
         context.user_data['profile'] = profile
         
         # Get Reading Plan
-        plan_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'reading_plan.md')
-        _, plan_body = await loop.run_in_executor(None, self.drive.read_md_file, plan_id)
+        plan_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'reading_plan.yaml')
+        plan_data = await loop.run_in_executor(None, self.drive.read_yaml_file, plan_id)
         
-        if not plan_body:
+        if not plan_data or not plan_data.get('plan'):
             await update.message.reply_text("Error: Reading plan is empty or missing. Please contact support or restart.")
             return ConversationHandler.END
+
+        plan_body = plan_data['plan']
 
         # Determine today's reading (naive parsing for now, assuming line by line or Day X format)
         # Check if the plan covers the current day
@@ -270,9 +275,10 @@ class BibleBot:
              
              # Append to existing plan
              plan_body += f"\n\n{new_plan_part}"
+             plan_data['plan'] = plan_body
              await loop.run_in_executor(
                  None, 
-                 lambda: self.drive.write_md_file(folder_id, 'reading_plan.md', {'generated_at': 'now'}, plan_body, file_id=plan_id)
+                 lambda: self.drive.write_yaml_file(folder_id, 'reading_plan.yaml', plan_data, file_id=plan_id)
              )
 
         # In a real scenario, we'd parse 'plan_body' to find the specific verses.
@@ -298,13 +304,13 @@ class BibleBot:
         loop = asyncio.get_running_loop()
         
         # Update Progress in Profile
-        file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'profile.md')
-        profile, body = await loop.run_in_executor(None, self.drive.read_md_file, file_id)
+        file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'profile.yaml')
+        profile = await loop.run_in_executor(None, self.drive.read_yaml_file, file_id)
         
         profile['current_day'] = profile.get('current_day', 1) + 1
         await loop.run_in_executor(
             None, 
-            lambda: self.drive.write_md_file(folder_id, 'profile.md', profile, body, file_id=file_id)
+            lambda: self.drive.write_yaml_file(folder_id, 'profile.yaml', profile, file_id=file_id)
         )
         
         # Initialize Chat History for this session
@@ -325,12 +331,12 @@ class BibleBot:
         history = context.user_data.get('chat_history')
         
         # 2. If missing, try Drive
-        chat_file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'chat_history.md')
+        chat_file_id = await loop.run_in_executor(None, self.drive.get_file_id_by_name, folder_id, 'chat_history.yaml')
         
         if history is None:
             if chat_file_id:
-                meta, _ = await loop.run_in_executor(None, self.drive.read_md_file, chat_file_id)
-                history = meta.get('history', [])
+                data = await loop.run_in_executor(None, self.drive.read_yaml_file, chat_file_id)
+                history = data.get('history', []) if data else []
             else:
                 history = []
 
@@ -351,23 +357,13 @@ class BibleBot:
         context.user_data['chat_history'] = history
         
         # Persist Chat Log to Drive
-        # We save the structured history in Frontmatter for state recovery
-        # And the readable text in the body for the user
-        if chat_file_id:
-            meta, content = await loop.run_in_executor(None, self.drive.read_md_file, chat_file_id)
-            meta['history'] = history
-            new_content = content + f"\n\n**User:** {user_input}\n**Bot:** {response}"
-            await loop.run_in_executor(
-                None, 
-                lambda: self.drive.write_md_file(folder_id, 'chat_history.md', meta, new_content, file_id=chat_file_id)
-            )
-        else:
-            meta = {'created': 'now', 'history': history}
-            new_content = f"**User:** {user_input}\n**Bot:** {response}"
-            await loop.run_in_executor(
-                None, 
-                lambda: self.drive.write_md_file(folder_id, 'chat_history.md', meta, new_content)
-            )
+        # We save the structured history in YAML
+        chat_data = {'created': 'now' if not chat_file_id else 'existing', 'history': history}
+
+        await loop.run_in_executor(
+            None,
+            lambda: self.drive.write_yaml_file(folder_id, 'chat_history.yaml', chat_data, file_id=chat_file_id)
+        )
 
         await update.message.reply_text(response)
         return DISCUSSION
