@@ -119,7 +119,12 @@ class BibleBot:
                 return IDLE
 
             # If empty, treat as Onboarding (the user created the placeholder)
-            await update.message.reply_text("Access confirmed! I see your empty profile.yaml.\nLet's set up your profile.\n\nFirst, what is your preferred language?")
+            await update.message.reply_text(
+                "Access confirmed! I see your empty profile.yaml.\n"
+                "I am your personal Bible Reading Companion, designed to help you read and understand the scriptures.\n\n"
+                "To create a customized reading plan for you, I need to ask a few questions.\n\n"
+                "First, what is your preferred language?"
+            )
             return ONBOARDING_LANGUAGE
         else:
             # Profile doesn't exist. Try to create a test file to check for "Quota" issue.
@@ -132,7 +137,12 @@ class BibleBot:
                 if test_file_id:
                     await loop.run_in_executor(None, self.drive.delete_file, test_file_id)
 
-                await update.message.reply_text("Access confirmed! Let's set up your profile.\n\nFirst, what is your preferred language?")
+                await update.message.reply_text(
+                    "Access confirmed!\n"
+                    "I am your personal Bible Reading Companion, designed to help you read and understand the scriptures.\n\n"
+                    "To create a customized reading plan for you, I need to ask a few questions.\n\n"
+                    "First, what is your preferred language?"
+                )
                 return ONBOARDING_LANGUAGE
 
             except Exception as e:
