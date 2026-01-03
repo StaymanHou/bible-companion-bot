@@ -264,5 +264,39 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state, READING)
         self.assertEqual(self.mock_context.user_data['current_reading_ref'], "Genesis 2")
 
+    async def test_chat_history_persistence_check(self):
+        """Test that the full chat history (including new turn) is saved to Drive."""
+        self.mock_context.user_data['drive_folder_id'] = "fid"
+        self.mock_context.user_data['chat_history'] = None # Simulate cold start
+
+        # Mock existing file with old history
+        self.mock_drive.get_file_id_by_name.return_value = "chat_id"
+        self.mock_drive.read_md_file.return_value = (
+            {'history': [{'role': 'user', 'parts': ['old_msg']}]},
+            "**User:** old_msg"
+        )
+
+        self.mock_update.message.text = "new_msg"
+        self.mock_ai.discuss_reading.return_value = "response_msg"
+
+        await self.bot.discussion_handler(self.mock_update, self.mock_context)
+
+        # Verify write_md_file was called
+        self.mock_drive.write_md_file.assert_called()
+
+        # Extract the arguments passed to write_md_file
+        # args: folder_id, filename, frontmatter, body, file_id
+        args = self.mock_drive.write_md_file.call_args[0]
+        frontmatter = args[2]
+
+        self.assertIn('history', frontmatter)
+        history = frontmatter['history']
+
+        # Expect 3 items: 1 old, 1 new user, 1 new bot
+        self.assertEqual(len(history), 3)
+        self.assertEqual(history[0]['parts'][0], 'old_msg')
+        self.assertEqual(history[1]['parts'][0], 'new_msg')
+        self.assertEqual(history[2]['parts'][0], 'response_msg')
+
 if __name__ == '__main__':
     unittest.main()

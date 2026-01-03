@@ -69,22 +69,31 @@ The easiest way to run the bot is using Docker.
 
 This bot is optimized for **Google Cloud Run** using Webhooks. This allows the bot to scale to zero when not in use, making it cost-effective (likely free for personal use).
 
-### Step 1: Deploy Initial Version
-Since Cloud Run generates the URL *after* deployment, we deploy once to get the URL.
+### Step 1: Create Secrets & Grant Permissions
+**Important:** Cloud Run requires explicit permission to access your secrets. Run these commands **before** deploying.
 
-1.  **Prepare Credentials:**
-    - Option A: Upload `service_account.json` to **Secret Manager** (Recommended).
-      1. Create secret: `gcloud secrets create bible-bot-creds --data-file=service_account.json`
-      2. Grant access (replace `PROJECT_NUMBER`):
-         ```bash
-         # Find project number: gcloud projects list --filter="$(gcloud config get-value project)" --format="value(projectNumber)"
-         gcloud secrets add-iam-policy-binding bible-bot-creds \
-           --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-           --role="roles/secretmanager.secretAccessor"
-         ```
-    - Option B: Copy `service_account.json` into the image (Simpler but less secure).
+1.  **Create Secret:**
+    ```bash
+    gcloud secrets create bible-bot-creds --data-file=service_account.json
+    ```
 
-2.  **Deploy:**
+2.  **Grant Access:**
+    Replace `PROJECT_NUMBER` with your actual project number.
+    ```bash
+    # 1. Get Project Number
+    gcloud projects list --filter="$(gcloud config get-value project)" --format="value(projectNumber)"
+
+    # 2. Grant Secret Accessor Role
+    # Replace [PROJECT_NUMBER] below with the number from the command above
+    gcloud secrets add-iam-policy-binding bible-bot-creds \
+      --member="serviceAccount:[PROJECT_NUMBER]-compute@developer.gserviceaccount.com" \
+      --role="roles/secretmanager.secretAccessor"
+    ```
+
+### Step 2: Deploy Initial Version
+Now deploy the bot. Since Cloud Run generates the URL *after* deployment, we deploy once to get the URL.
+
+1.  **Deploy:**
     ```bash
     gcloud run deploy bible-bot \
       --source . \
