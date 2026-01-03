@@ -104,7 +104,7 @@ Now deploy the bot. Since Cloud Run generates the URL *after* deployment, we dep
     ```
     *Note: If using Option B (local file), remove `--set-secrets` and ensure the file is copied in Dockerfile.*
 
-### Step 2: Configure Webhook
+### Step 3: Configure Webhook
 Once the deployment finishes, copy the **Service URL** (e.g., `https://bible-bot-xyz.a.run.app`).
 
 1.  **Update Environment Variable:**
@@ -119,6 +119,21 @@ Once the deployment finishes, copy the **Service URL** (e.g., `https://bible-bot
     The bot will now restart in Webhook mode. Cloud Run automatically manages the `PORT` variable.
 
     *Note: The bot automatically saves chat history to Google Drive, ensuring conversations persist even if the server sleeps.*
+
+### Step 4: Deploy Updates
+To deploy code changes (including `requirements.txt` updates):
+
+```bash
+gcloud run deploy bible-bot --source . --region us-central1
+```
+*Existing environment variables and secret mounts are preserved automatically.*
+
+If you need to update configuration (e.g. a new API key):
+```bash
+gcloud run services update bible-bot \
+  --region us-central1 \
+  --update-env-vars NEW_VAR="value"
+```
 
 ---
 
