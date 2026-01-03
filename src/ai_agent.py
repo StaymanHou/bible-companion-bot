@@ -11,7 +11,7 @@ class GeminiAgent:
             logger.warning("No Gemini API key provided. AI features will fail if not mocked.")
         else:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
 
     def generate_response(self, prompt, context_history=None):
         """
