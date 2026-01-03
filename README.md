@@ -74,6 +74,14 @@ Since Cloud Run generates the URL *after* deployment, we deploy once to get the 
 
 1.  **Prepare Credentials:**
     - Option A: Upload `service_account.json` to **Secret Manager** (Recommended).
+      1. Create secret: `gcloud secrets create bible-bot-creds --data-file=service_account.json`
+      2. Grant access (replace `PROJECT_NUMBER`):
+         ```bash
+         # Find project number: gcloud projects list --filter="$(gcloud config get-value project)" --format="value(projectNumber)"
+         gcloud secrets add-iam-policy-binding bible-bot-creds \
+           --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+           --role="roles/secretmanager.secretAccessor"
+         ```
     - Option B: Copy `service_account.json` into the image (Simpler but less secure).
 
 2.  **Deploy:**
