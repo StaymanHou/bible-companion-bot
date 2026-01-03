@@ -1,6 +1,8 @@
 import os
 import logging
 import asyncio
+import http.server
+import socketserver
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, CommandHandler, 
@@ -331,6 +333,7 @@ class BibleBot:
     def run(self):
         webhook_url = os.environ.get('WEBHOOK_URL')
         port = int(os.environ.get('PORT', '8080'))
+        is_cloud_run = os.environ.get('K_SERVICE') is not None
 
         if webhook_url:
             logger.info(f"Starting in Webhook mode. Listening on port {port}...")
@@ -340,6 +343,21 @@ class BibleBot:
                 webhook_url=webhook_url,
                 allowed_updates=Update.ALL_TYPES
             )
+        elif is_cloud_run:
+            logger.warning(f"WEBHOOK_URL not set. Detected Cloud Run environment. Starting dummy server on port {port} to pass health check.")
+
+            class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+                def do_GET(self):
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(b"Service is running. Please set WEBHOOK_URL to enable the bot.")
+
+            # Allow address reuse to avoid 'Address already in use' errors during restarts
+            socketserver.TCPServer.allow_reuse_address = True
+            with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
+                logger.info(f"Serving health check on port {port}")
+                httpd.serve_forever()
         else:
             logger.info("Starting in Polling mode...")
             self.application.run_polling()
