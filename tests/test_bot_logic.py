@@ -59,6 +59,9 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state, ONBOARDING_LANGUAGE)
         self.assertEqual(self.mock_context.user_data['drive_folder_id'], "valid_folder_id")
         self.mock_drive.delete_file.assert_called_with("test_file_id")
+        # Check for intro text
+        args = self.mock_update.message.reply_text.call_args[0][0]
+        self.assertIn("Bible Reading Companion", args)
 
     async def test_drive_setup_quota_error(self):
         """Test valid folder, no profile, write access fails (Quota) -> Ask User."""
@@ -103,7 +106,9 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
         state = await self.bot.drive_setup_handler(self.mock_update, self.mock_context)
 
         self.assertEqual(state, ONBOARDING_LANGUAGE)
-        self.assertIn("empty profile.yaml", self.mock_update.message.reply_text.call_args[0][0])
+        args = self.mock_update.message.reply_text.call_args[0][0]
+        self.assertIn("empty profile.yaml", args)
+        self.assertIn("Bible Reading Companion", args)
 
     async def test_onboarding_flow(self):
         """Test the sequence of onboarding questions."""
