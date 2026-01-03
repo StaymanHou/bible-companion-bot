@@ -65,35 +65,59 @@ The easiest way to run the bot is using Docker.
 
 ---
 
-## 3. Google Cloud Run Deployment
+## 3. Google Cloud Run Deployment (Serverless / Free Tier)
 
-To deploy permanently on the cloud without managing a server.
+This bot is optimized for **Google Cloud Run** using Webhooks. This allows the bot to scale to zero when not in use, making it cost-effective (likely free for personal use).
 
-### Option A: Quick Deploy (if you don't mind the key in the image)
-*Warning: This methods embeds the credential in the image, which is less secure but easier for personal use.*
+### Step 1: Create Secrets & Grant Permissions
+**Important:** Cloud Run requires explicit permission to access your secrets. Run these commands **before** deploying.
 
-1.  **Copy Credential:** Place `service_account.json` in `src/credentials/service_account.json` (you may need to create the folder).
-2.  **Update Dockerfile:** Uncomment the COPY line or add: `COPY src/credentials /app/credentials`
-3.  **Deploy:**
+1.  **Create Secret:**
+    ```bash
+    gcloud secrets create bible-bot-creds --data-file=service_account.json
+    ```
+
+2.  **Grant Access:**
+    Replace `PROJECT_NUMBER` with your actual project number.
+    ```bash
+    # 1. Get Project Number
+    gcloud projects list --filter="$(gcloud config get-value project)" --format="value(projectNumber)"
+
+    # 2. Grant Secret Accessor Role
+    # Replace [PROJECT_NUMBER] below with the number from the command above
+    gcloud secrets add-iam-policy-binding bible-bot-creds \
+      --member="serviceAccount:[PROJECT_NUMBER]-compute@developer.gserviceaccount.com" \
+      --role="roles/secretmanager.secretAccessor"
+    ```
+
+### Step 2: Deploy Initial Version
+Now deploy the bot. Since Cloud Run generates the URL *after* deployment, we deploy once to get the URL.
+
+1.  **Deploy:**
     ```bash
     gcloud run deploy bible-bot \
       --source . \
       --region us-central1 \
+      --allow-unauthenticated \
       --set-env-vars TELEGRAM_TOKEN="your_token",GEMINI_API_KEY="your_key" \
-      --allow-unauthenticated
+      --set-secrets="/app/credentials/service_account.json=bible-bot-creds:latest"
+    ```
+    *Note: If using Option B (local file), remove `--set-secrets` and ensure the file is copied in Dockerfile.*
+
+### Step 2: Configure Webhook
+Once the deployment finishes, copy the **Service URL** (e.g., `https://bible-bot-xyz.a.run.app`).
+
+1.  **Update Environment Variable:**
+    ```bash
+    gcloud run services update bible-bot \
+      --region us-central1 \
+      --set-env-vars WEBHOOK_URL="https://YOUR-SERVICE-URL.run.app"
     ```
 
-### Option B: Secure Deploy (Secrets Manager)
-1.  **Upload Secret:** Upload `service_account.json` to **Secret Manager** in Google Cloud (name it `bible-bot-creds`).
-2.  **Deploy:**
-    ```bash
-    gcloud run deploy bible-bot \
-      --source . \
-      --region us-central1 \
-      --set-env-vars TELEGRAM_TOKEN="your_token",GEMINI_API_KEY="your_key" \
-      --set-secrets="/app/credentials/service_account.json=bible-bot-creds:latest" \
-      --allow-unauthenticated
-    ```
+2.  **Done!**
+    The bot will now restart in Webhook mode. Cloud Run automatically manages the `PORT` variable.
+
+    *Note: The bot automatically saves chat history to Google Drive, ensuring conversations persist even if the server sleeps.*
 
 ---
 
