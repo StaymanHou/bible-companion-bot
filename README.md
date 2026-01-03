@@ -108,10 +108,11 @@ Now deploy the bot. Since Cloud Run generates the URL *after* deployment, we dep
 Once the deployment finishes, copy the **Service URL** (e.g., `https://bible-bot-xyz.a.run.app`).
 
 1.  **Update Environment Variable:**
+    **Important:** Use `--update-env-vars` to add the variable without deleting your existing tokens.
     ```bash
     gcloud run services update bible-bot \
       --region us-central1 \
-      --set-env-vars WEBHOOK_URL="https://YOUR-SERVICE-URL.run.app"
+      --update-env-vars WEBHOOK_URL="https://YOUR-SERVICE-URL.run.app"
     ```
 
 2.  **Done!**
