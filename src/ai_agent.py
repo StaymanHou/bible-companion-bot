@@ -1,5 +1,5 @@
 import os
-import google.generativeai as genai
+from google import genai
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,9 +9,10 @@ class GeminiAgent:
         self.api_key = api_key or os.environ.get('GEMINI_API_KEY')
         if not self.api_key:
             logger.warning("No Gemini API key provided. AI features will fail if not mocked.")
+            self.client = None
         else:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.client = genai.Client(api_key=self.api_key)
+        self.model_name = 'gemini-2.5-flash'
 
     def generate_response(self, prompt, context_history=None):
         """
@@ -24,11 +25,16 @@ class GeminiAgent:
         Returns:
             str: The generated text response.
         """
-        if not hasattr(self, 'model'):
+        if not self.client:
             return "AI Service Unavailable (Missing API Key)."
 
         try:
-            chat = self.model.start_chat(history=context_history or [])
+            # The new SDK handles chat history slightly differently, but often accepts a list of content objects.
+            # We initialize a chat session.
+            chat = self.client.chats.create(
+                model=self.model_name,
+                history=context_history or []
+            )
             response = chat.send_message(prompt)
             return response.text
         except Exception as e:
