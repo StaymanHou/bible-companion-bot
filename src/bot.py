@@ -71,7 +71,9 @@ class BibleBot:
         await update.message.reply_text(
             "Welcome to your Bible Reading Companion!\n\n"
             "To get started, I need access to a Google Drive folder to store your progress and preferences.\n"
-            "1. Please share a folder with my service account:\n"
+            "**Important:** Because I am a service account, I cannot own files in a personal Drive. "
+            "Please create a folder in a **Shared Drive** (Team Drive) and share it with me.\n\n"
+            "1. Share a folder in a Shared Drive with my email:\n"
             f"`{email}`\n"
             "2. Paste the **Folder ID** here.",
             parse_mode='Markdown'
@@ -91,7 +93,10 @@ class BibleBot:
                 None, self.drive.list_files_in_folder, folder_id
             )
         except Exception as e:
-            await update.message.reply_text(f"Could not access that folder. Error: {e}")
+            await update.message.reply_text(
+                f"Could not access that folder. Error: {e}\n\n"
+                "Please make sure the folder is in a **Shared Drive** and shared with the service account email."
+            )
             return DRIVE_SETUP
 
         context.user_data['drive_folder_id'] = folder_id

@@ -46,7 +46,9 @@ class GoogleDriveManager:
         try:
             results = self.service.files().list(
                 q=f"'{folder_id}' in parents and trashed = false",
-                fields="files(id, name, mimeType)").execute()
+                fields="files(id, name, mimeType)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True).execute()
             return results.get('files', [])
         except Exception as e:
             logger.error(f"Error listing files: {e}")
@@ -56,7 +58,7 @@ class GoogleDriveManager:
         """Reads a Markdown file and parses YAML frontmatter."""
         if not self.service: return None, None
         try:
-            request = self.service.files().get_media(fileId=file_id)
+            request = self.service.files().get_media(fileId=file_id, supportsAllDrives=True)
             fh = io.BytesIO()
             downloader = MediaIoBaseDownload(fh, request)
             done = False
@@ -99,14 +101,16 @@ class GoogleDriveManager:
                 # Update existing file
                 file = self.service.files().update(
                     fileId=file_id,
-                    media_body=media).execute()
+                    media_body=media,
+                    supportsAllDrives=True).execute()
             else:
                 # Create new file
                 file_metadata['parents'] = [folder_id]
                 file = self.service.files().create(
                     body=file_metadata,
                     media_body=media,
-                    fields='id').execute()
+                    fields='id',
+                    supportsAllDrives=True).execute()
             return file.get('id')
         except Exception as e:
             logger.error(f"Error writing file {filename}: {e}")
