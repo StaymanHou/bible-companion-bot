@@ -71,9 +71,13 @@ class BibleBot:
         await update.message.reply_text(
             "Welcome to your Bible Reading Companion!\n\n"
             "To get started, I need access to a Google Drive folder to store your progress and preferences.\n"
-            "**Important:** Because I am a service account, I cannot own files in a personal Drive. "
-            "Please create a folder in a **Shared Drive** (Team Drive) and share it with me.\n\n"
-            "1. Share a folder in a Shared Drive with my email:\n"
+            "**Important:** I need Edit access to this folder.\n"
+            "If you are using a **Personal Google Account**, you must create 3 empty files in the folder for me to use (due to Google permission rules):\n"
+            "- `profile.md`\n"
+            "- `reading_plan.md`\n"
+            "- `chat_history.md`\n\n"
+            "If you are using a **Shared Drive (Workspace)**, you don't need to create these files.\n\n"
+            "1. Share the folder with my email:\n"
             f"`{email}`\n"
             "2. Paste the **Folder ID** here.",
             parse_mode='Markdown'
@@ -82,37 +86,74 @@ class BibleBot:
 
     async def drive_setup_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         folder_id = update.message.text.strip()
+        loop = asyncio.get_running_loop()
         
         # Verify access by trying to list files
-        # We assume if it returns a list (even empty), we have access.
-        # Real error handling would catch auth errors.
         try:
             # Offload blocking call
-            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, self.drive.list_files_in_folder, folder_id
             )
         except Exception as e:
             await update.message.reply_text(
                 f"Could not access that folder. Error: {e}\n\n"
-                "Please make sure the folder is in a **Shared Drive** and shared with the service account email."
+                "Please make sure the folder is shared with the service account email."
             )
             return DRIVE_SETUP
 
         context.user_data['drive_folder_id'] = folder_id
         
         # Check for existing profile
-        loop = asyncio.get_running_loop()
         profile_id = await loop.run_in_executor(
             None, self.drive.get_file_id_by_name, folder_id, 'profile.md'
         )
         
+        # Logic to determine if we are onboarding or returning
         if profile_id:
-            await update.message.reply_text("I found an existing profile in this folder! Welcome back.\n\nType /read to continue your journey.")
-            return IDLE
-        else:
-            await update.message.reply_text("Access confirmed! Let's set up your profile.\n\nFirst, what is your preferred language?")
+            # Read the profile to check if it's populated or just an empty placeholder
+            read_result = await loop.run_in_executor(None, self.drive.read_md_file, profile_id)
+            profile_data, body = read_result if read_result else ({}, "")
+
+            # If it has data, welcome back
+            if profile_data or (body and body.strip()):
+                await update.message.reply_text("I found an existing profile in this folder! Welcome back.\n\nType /read to continue your journey.")
+                return IDLE
+
+            # If empty, treat as Onboarding (the user created the placeholder)
+            await update.message.reply_text("Access confirmed! I see your empty profile.md.\nLet's set up your profile.\n\nFirst, what is your preferred language?")
             return ONBOARDING_LANGUAGE
+        else:
+            # Profile doesn't exist. Try to create a test file to check for "Quota" issue.
+            try:
+                test_file_id = await loop.run_in_executor(
+                    None,
+                    lambda: self.drive.write_md_file(folder_id, 'bot_test_permission.txt', {}, "test")
+                )
+                # If success, we have write access (Shared Drive or other). Clean up.
+                if test_file_id:
+                    await loop.run_in_executor(None, self.drive.delete_file, test_file_id)
+
+                await update.message.reply_text("Access confirmed! Let's set up your profile.\n\nFirst, what is your preferred language?")
+                return ONBOARDING_LANGUAGE
+
+            except Exception as e:
+                # Catch Quota/Permission errors specifically
+                err_str = str(e).lower()
+                if "quota" in err_str or "service accounts do not have storage" in err_str:
+                    await update.message.reply_text(
+                        "**Action Required:**\n"
+                        "I cannot create new files in this folder because of Google's Service Account restrictions on Personal Drives.\n\n"
+                        "Please manually create these **empty files** inside your folder:\n"
+                        "1. `profile.md`\n"
+                        "2. `reading_plan.md`\n"
+                        "3. `chat_history.md`\n\n"
+                        "After you have created them, paste the **Folder ID** again."
+                    )
+                    return DRIVE_SETUP
+                else:
+                    # Generic write error
+                    await update.message.reply_text(f"Error checking write permissions: {e}")
+                    return DRIVE_SETUP
 
     async def onboarding_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['language'] = update.message.text
