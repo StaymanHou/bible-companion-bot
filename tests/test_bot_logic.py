@@ -178,5 +178,20 @@ class TestBibleBotLogic(unittest.IsolatedAsyncioTestCase):
             "fid", 'chat_history.yaml', ANY, file_id=None
         )
 
+    async def test_help_command(self):
+        """Test /help command sends the help message."""
+        await self.bot.help_command(self.mock_update, self.mock_context)
+
+        self.mock_update.message.reply_text.assert_called_once()
+        args = self.mock_update.message.reply_text.call_args[0][0]
+
+        # Verify it contains all commands
+        self.assertIn("/start", args)
+        self.assertIn("/read", args)
+        self.assertIn("/done", args)
+        self.assertIn("/cancel", args)
+        self.assertIn("/help", args)
+        self.assertIn("**Bible Companion Commands**", args)
+
 if __name__ == '__main__':
     unittest.main()

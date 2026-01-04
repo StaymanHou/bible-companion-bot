@@ -61,10 +61,26 @@ class BibleBot:
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.discussion_handler)
                 ],
             },
-            fallbacks=[CommandHandler('cancel', self.cancel)]
+            fallbacks=[
+                CommandHandler('cancel', self.cancel),
+                CommandHandler('help', self.help_command)
+            ]
         )
         
         self.application.add_handler(conv_handler)
+        # Add help handler globally for when not in a conversation
+        self.application.add_handler(CommandHandler('help', self.help_command))
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        help_text = (
+            "**Bible Companion Commands**\n\n"
+            "/start - Begin your journey and set up your profile\n"
+            "/read - Get today's reading\n"
+            "/done - Mark reading as complete and discuss\n"
+            "/cancel - Cancel current operation\n"
+            "/help - Show this help message"
+        )
+        await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         email = self.drive.get_service_account_email()
